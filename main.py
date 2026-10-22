@@ -6,28 +6,35 @@ os.environ['GLOG_minloglevel'] = '2'
 import cv2
 import math
 import mediapipe as mp
+import winsound
+import threading
 
 # Importăm modulele create de voi
 import pyautogui
 from mouse_engine import MouseController
 from gesture_logic import GestureProcessor
-
-# Inițializăm modulele voastre
-screen_w, screen_h = pyautogui.size()
-mouse = MouseController(screen_w, screen_h)
-logic = GestureProcessor()
+from debug import DebugMonitor
+from overlay import JoystickOverlay
 
 mp_face_mesh = mp.solutions.face_mesh
 
 current_state = {
-    "nose_x": 0.0, "nose_y": 0.0,
+    "nose_x": 0.0, "nose_y": 0.0, 
     "left_eye_ratio": 0.3, "right_eye_ratio": 0.3, "mouth_ratio": 0.1,
 }
 
 # JoyStick Settings
 CENTER_X, CENTER_Y = 0.5, 0.5
 DEADZONE = 0.04   
-MAX_SPEED = 200    # Crește pentru cursor mai rapid, scade pentru mai lent
+MAX_SPEED = 100
+MIN_SPEED = 3.0
+
+# Inițializăm modulele voastre
+screen_w, screen_h = pyautogui.size()
+mouse = MouseController(screen_w, screen_h)
+logic = GestureProcessor() 
+debugger = DebugMonitor(print_interval=0.3)
+hud_overlay = JoystickOverlay(size=160, deadzone_ratio=DEADZONE, max_reach=0.15)
 
 # Multiplicator pentru scroll (ajustează dacă e prea rapid/lent)
 SCROLL_MULTIPLIER = 3
@@ -110,6 +117,16 @@ try:
                 mouth_h_dist = euclidean_distance(face_landmarks.landmark[MOUTH_LEFT], face_landmarks.landmark[MOUTH_RIGHT])
                 if mouth_h_dist > 0: current_state["mouth_ratio"] = mouth_v_dist / mouth_h_dist
 
+                face_width = euclidean_distance(face_landmarks.landmark[33], face_landmarks.landmark[263])
+                
+                if face_width > 0:
+                    mouth_width_ratio = mouth_h_dist / face_width
+                    
+                    # Dacă buzele sunt țuguiate, lățimea gurii scade sub 33% din lățimea feței
+                    if mouth_width_ratio < 0.33:
+                        CENTER_X = current_state["nose_x"]
+                        CENTER_Y = current_state["nose_y"]
+
                 # JoyStick
                 dx = current_state["nose_x"] - CENTER_X
                 dy = current_state["nose_y"] - CENTER_Y
@@ -119,11 +136,14 @@ try:
 
                 if abs(dx) > DEADZONE:
                     active_dx = dx - (DEADZONE if dx > 0 else -DEADZONE)
-                    mouse_velocity_x = active_dx * MAX_SPEED
+                    sign_x = 1 if dx > 0 else -1
+                    # Pleacă direct cu MIN_SPEED, apoi accelerează
+                    mouse_velocity_x = sign_x * (abs(active_dx) * MAX_SPEED + MIN_SPEED)
 
                 if abs(dy) > DEADZONE:
                     active_dy = dy - (DEADZONE if dy > 0 else -DEADZONE)
-                    mouse_velocity_y = active_dy * MAX_SPEED
+                    sign_y = 1 if dy > 0 else -1
+                    mouse_velocity_y = sign_y * (abs(active_dy) * MAX_SPEED + MIN_SPEED)
 
                 # ==========================================================
                 # INTEGRAREA ACTUATORULUI ȘI A LOGICII
@@ -145,13 +165,19 @@ try:
                     if comenzi["scroll"] != (0.0, 0.0):
                         mouse.scroll(
                             comenzi["scroll"][1] * SCROLL_MULTIPLIER, 
-                            comenzi["scroll"][0] * SCROLL_MULTIPLIER
+                            comenzi["scroll"][0] * SCROLL_MULTIPLIER 
                         )
                         
                     if comenzi["left_click"]: mouse.left_click()
                     if comenzi["right_click"]: mouse.right_click()
                     if comenzi["double_click"]: mouse.double_click()
-                    if comenzi["toggle_drag"]: mouse.toggle_drag()
+                    if comenzi["toggle_drag"]: 
+                        mouse.toggle_drag()
+                        # Fără threading, pauza va fi de doar 200ms (insesizabil la o acțiune intenționată)
+                        if logic.is_dragging:
+                            winsound.Beep(500, 200) # Ton mai ascuțit când prinzi fișierul
+                        else:
+                            winsound.Beep(350, 200) # Ton mai grav când îl lași
                     if comenzi["toggle_sleep"]: mouse.toggle_sleep()
 
                     # 3. Kill-Switch pe tasta Space
@@ -170,7 +196,8 @@ try:
                 in_deadzone = (abs(dx) <= DEADZONE and abs(dy) <= DEADZONE)
                 nose_color = (0, 255, 0) if in_deadzone else (0, 0, 255)
                 cv2.circle(image, nose_px, 5, nose_color, -1)
-
+                hud_overlay.update(dx, dy, in_deadzone)
+  
                 if not in_deadzone:
                     cv2.line(image, center_px, nose_px, (0, 165, 255), 2)
 
@@ -184,6 +211,9 @@ try:
                 else:
                     cv2.putText(image, "ACTIV", 
                                 (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    
+                debugger.draw_hud(image, current_state, mouse_velocity_x, mouse_velocity_y)
+                debugger.print_terminal(current_state, mouse_velocity_x, mouse_velocity_y)
 
         cv2.imshow('MotionClick - Produs Final', image)
         key = cv2.waitKey(5) & 0xFF
@@ -205,4 +235,5 @@ except Exception as e:
 finally:
     cap.release()
     cv2.destroyAllWindows()
+    hud_overlay.close()
     print("Camera eliberata. La revedere!")
