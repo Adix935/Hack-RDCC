@@ -15,9 +15,9 @@ current_state = {
 # JoyStick Settings
 CENTER_X = 0.5
 CENTER_Y = 0.5
-DEADZONE = 0.04   # 4% zonă moartă în jurul centrului pentru repaus
+DEADZONE = 0.03   # 4% zonă moartă în jurul centrului pentru repaus
 # Cursor speed
-MAX_SPEED = 25
+MAX_SPEED = 200
 
 is_calibrated = False
 calibration_frames = []
