@@ -2,16 +2,22 @@ import cv2
 import math
 import mediapipe as mp
 
-# Așa trebuie să arate inițializarea:
 mp_face_mesh = mp.solutions.face_mesh
 
 # --- CONTRACTUL ---
 current_state = {
-    "nose_x": 0.0,       # de la 0.0 la 1.0
-    "nose_y": 0.0,       # de la 0.0 la 1.0
-    "eye_ratio": 0.3,    # distanța dintre pleoape
-    "mouth_ratio": 0.1,  # cât de deschisă e gura
+    "nose_x": 0.0,
+    "nose_y": 0.0,
+    "left_eye_ratio": 0.3,
+    "right_eye_ratio": 0.3,
+    "mouth_ratio": 0.1,
 }
+
+# --- SETĂRI JOYSTICK RELATIV ---
+CENTER_X = 0.5
+CENTER_Y = 0.5
+DEADZONE = 0.04   # 4% zonă moartă în jurul centrului pentru repaus
+MAX_SPEED = 25    # Viteza de deplasare a cursorului
 
 face_mesh = mp_face_mesh.FaceMesh(
     max_num_faces=1,
@@ -20,75 +26,83 @@ face_mesh = mp_face_mesh.FaceMesh(
     min_tracking_confidence=0.5
 )
 
-# Funcție utilitară pentru a calcula distanța 2D între două puncte
 def euclidean_distance(p1, p2):
     return math.hypot(p2.x - p1.x, p2.y - p1.y)
 
-# Indexurile punctelor cheie din MediaPipe Face Mesh
+# Indexuri MediaPipe
 NOSE_TIP = 1
-
-# Ochiul stâng (folosit ca referință pentru clipit)
 EYE_TOP = 159
 EYE_BOTTOM = 145
 EYE_LEFT = 33
 EYE_RIGHT = 133
-
-# Gură (buza superioară și inferioară interioară)
+RIGHT_EYE_TOP = 386
+RIGHT_EYE_BOTTOM = 374
+RIGHT_EYE_LEFT = 362
+RIGHT_EYE_RIGHT = 263
 MOUTH_TOP = 13
 MOUTH_BOTTOM = 14
 MOUTH_LEFT = 78
 MOUTH_RIGHT = 308
 
-# --- Pornire Cameră Web ---
 cap = cv2.VideoCapture(0)
-
-print("Vision Engine pornit. Apasă 'q' pentru a opri.")
+print("Vision Engine pornit în mod Joystick. Apasă 'q' pentru a opri.")
 
 while cap.isOpened():
     success, image = cap.read()
     if not success:
-        print("Nu se poate citi de la camera web.")
         break
 
-    # Oglindim imaginea (pentru a fi mai natural) și o convertim în RGB
     image = cv2.flip(image, 1)
     rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-    # Procesăm imaginea
     results = face_mesh.process(rgb_image)
 
     if results.multi_face_landmarks:
         for face_landmarks in results.multi_face_landmarks:
-            
-            # 1. Coordonatele Nasului (mapate 0.0 - 1.0)
+            # Nose Coordinates
             nose = face_landmarks.landmark[NOSE_TIP]
             current_state["nose_x"] = nose.x
             current_state["nose_y"] = nose.y
             
-            # 2. Eye Aspect Ratio (EAR) - pentru ochiul stâng
-            # EAR = distanța verticală / distanța orizontală
-            eye_v_dist = euclidean_distance(face_landmarks.landmark[EYE_TOP], face_landmarks.landmark[EYE_BOTTOM])
-            eye_h_dist = euclidean_distance(face_landmarks.landmark[EYE_LEFT], face_landmarks.landmark[EYE_RIGHT])
-            
-            # Evităm împărțirea la 0
-            if eye_h_dist > 0:
-                current_state["eye_ratio"] = eye_v_dist / eye_h_dist
+            # Eye Ratio
+            # Ochiul Stâng
+            l_eye_v = euclidean_distance(face_landmarks.landmark[EYE_TOP], face_landmarks.landmark[EYE_BOTTOM])
+            l_eye_h = euclidean_distance(face_landmarks.landmark[EYE_LEFT], face_landmarks.landmark[EYE_RIGHT])
+            if l_eye_h > 0:
+                current_state["left_eye_ratio"] = l_eye_v / l_eye_h
                 
-            # 3. Mouth Aspect Ratio (MAR)
+            # Ochiul Drept
+            r_eye_v = euclidean_distance(face_landmarks.landmark[RIGHT_EYE_TOP], face_landmarks.landmark[RIGHT_EYE_BOTTOM])
+            r_eye_h = euclidean_distance(face_landmarks.landmark[RIGHT_EYE_LEFT], face_landmarks.landmark[RIGHT_EYE_RIGHT])
+            if r_eye_h > 0:
+                current_state["right_eye_ratio"] = r_eye_v / r_eye_h
+                
+            # Mouth 
             mouth_v_dist = euclidean_distance(face_landmarks.landmark[MOUTH_TOP], face_landmarks.landmark[MOUTH_BOTTOM])
             mouth_h_dist = euclidean_distance(face_landmarks.landmark[MOUTH_LEFT], face_landmarks.landmark[MOUTH_RIGHT])
-            
             if mouth_h_dist > 0:
                 current_state["mouth_ratio"] = mouth_v_dist / mouth_h_dist
 
-            # Afișăm starea pentru a valida că totul funcționează conform misiunii tale
-            print(f"Nose: ({current_state['nose_x']:.3f}, {current_state['nose_y']:.3f}) | "
-                  f"Eye Ratio: {current_state['eye_ratio']:.3f} | "
-                  f"Mouth Ratio: {current_state['mouth_ratio']:.3f}")
+            # JoyStick
+            dx = current_state["nose_x"] - CENTER_X
+            dy = current_state["nose_y"] - CENTER_Y
 
-    # (Opțional) Afișăm și imaginea video pentru debug, deși pentru contract contează doar datele
+            mouse_velocity_x = 0.0
+            mouse_velocity_y = 0.0
+
+            if abs(dx) > DEADZONE:
+                active_dx = dx - (DEADZONE if dx > 0 else -DEADZONE)
+                mouse_velocity_x = active_dx * MAX_SPEED
+
+            if abs(dy) > DEADZONE:
+                active_dy = dy - (DEADZONE if dy > 0 else -DEADZONE)
+                mouse_velocity_y = active_dy * MAX_SPEED
+
+            print(f"Nose: ({current_state['nose_x']:.2f}, {current_state['nose_y']:.2f}) | "
+            f"Vx: {mouse_velocity_x:5.2f} | Vy: {mouse_velocity_y:5.2f} | "
+            f"L_Eye: {current_state['left_eye_ratio']:.2f} | R_Eye: {current_state['right_eye_ratio']:.2f} | "
+            f"Mouth: {current_state['mouth_ratio']:.2f}")
+            
     cv2.imshow('Vision Engine - Persoana 1', image)
-    
     if cv2.waitKey(5) & 0xFF == ord('q'):
         break
 
