@@ -1,164 +1,208 @@
 # main.py
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['GLOG_minloglevel'] = '2'
+
 import cv2
-import time
+import math
 import mediapipe as mp
+
+# Importăm modulele create de voi
+import pyautogui
+from mouse_engine import MouseController
+from gesture_logic import GestureProcessor
+
+# Inițializăm modulele voastre
+screen_w, screen_h = pyautogui.size()
+mouse = MouseController(screen_w, screen_h)
+logic = GestureProcessor()
 
 mp_face_mesh = mp.solutions.face_mesh
 
+current_state = {
+    "nose_x": 0.0, "nose_y": 0.0,
+    "left_eye_ratio": 0.3, "right_eye_ratio": 0.3, "mouth_ratio": 0.1,
+}
 
-from shared_state import config
-from math_utils import calculate_ratio, calculate_velocity
-from mouse_engine import MouseController
+# JoyStick Settings
+CENTER_X, CENTER_Y = 0.5, 0.5
+DEADZONE = 0.04   
+MAX_SPEED = 25    
 
-# Indexuri MediaPipe
+# Multiplicator pentru scroll (ajustează dacă e prea rapid/lent)
+SCROLL_MULTIPLIER = 3
+
+is_calibrated = False
+calibration_frames = []
+CALIBRATION_FRAME_COUNT = 45  
+
+face_mesh = mp_face_mesh.FaceMesh(
+    max_num_faces=1, refine_landmarks=True,
+    min_detection_confidence=0.5, min_tracking_confidence=0.5
+)
+
+def euclidean_distance(p1, p2):
+    return math.sqrt((p2.x - p1.x)**2 + (p2.y - p1.y)**2 + (p2.z - p1.z)**2)
+
 NOSE_TIP = 1
-
-# Ochi Stâng (perspectiva utilizatorului după flip)
-EYE_L_TOP, EYE_L_BOT = 159, 145
-EYE_L_LEFT, EYE_L_RIGHT = 33, 133
-
-# Ochi Drept (perspectiva utilizatorului după flip)
-EYE_R_TOP, EYE_R_BOT = 386, 374
-EYE_R_LEFT, EYE_R_RIGHT = 362, 263
-
-# Gură
-MOUTH_TOP, MOUTH_BOT = 13, 14
+EYE_TOP, EYE_BOTTOM = 159, 145
+EYE_LEFT, EYE_RIGHT = 33, 133
+RIGHT_EYE_TOP, RIGHT_EYE_BOTTOM = 386, 374
+RIGHT_EYE_LEFT, RIGHT_EYE_RIGHT = 362, 263
+MOUTH_TOP, MOUTH_BOTTOM = 13, 14
 MOUTH_LEFT, MOUTH_RIGHT = 78, 308
 
-def main():
-    # 1. Inițializări
-    mouse = MouseController(config["screen_width"], config["screen_height"])
-    
-    face_mesh = mp_face_mesh.FaceMesh(
-        max_num_faces=1, 
-        refine_landmarks=True,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5
-    )
-    
-    cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+print("=== MotionClick - Produs Final ===")
+print("Comenzi tastatura:")
+print("  'c' = Recalibrare pozitie neutra")
+print("  'q' = Oprire normala")
+print("  SPACE = Kill-Switch (oprire de urgenta)")
+print("Comenzi faciale:")
+print("  Misca capul = Misca cursorul")
+print("  Wink stang scurt = Click stanga")
+print("  Wink stang lung (>1s) = Drag & Drop")
+print("  Wink drept scurt = Click dreapta")
+print("  Ambii ochi 1-3s = Dublu Click")
+print("  Ambii ochi >3s = Sleep/Wake")
+print("  Gura deschisa + miscare cap = Scroll")
+print("=" * 40)
 
-    # 2. Variabile pentru cronometrarea gesturilor
-    l_closed_start = 0.0
-    r_closed_start = 0.0
-    both_closed_start = 0.0
-    
-    l_was_closed = False
-    r_was_closed = False
-    both_was_closed = False
-
-    print("\n[SISTEM] Vision Engine Avansat pornit!")
-    print("[COMENZI ACTIVE]:")
-    print(" - Wink Stâng scurt (<1s): Click Stânga")
-    print(" - Wink Stâng lung (>1s): Start Drag (alt wink scurt pt Drop)")
-    print(" - Wink Drept scurt (<1s): Click Dreapta")
-    print(" - Ambii ochi închiși (1s - 3s): Dublu Click")
-    print(" - Ambii ochi închiși (>3s): Sleep Mode (Pauză)")
-    print(" - Gură deschisă + mișcare cap: Scroll")
-    print("Apasă ESC pe tastatură pentru a ieși de urgență.\n")
-
+try:
     while cap.isOpened():
         success, image = cap.read()
-        if not success:
+        if not success: 
             break
 
-        # Imagine în oglindă pentru un control intuitiv
         image = cv2.flip(image, 1)
+        h, w, _ = image.shape
         rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         results = face_mesh.process(rgb_image)
 
         if results.multi_face_landmarks:
-            landmarks = results.multi_face_landmarks[0].landmark
-            
-            # --- CALCUL RAPOARTE ANATOMICE ---
-            ratio_l = calculate_ratio(landmarks, EYE_L_TOP, EYE_L_BOT, EYE_L_LEFT, EYE_L_RIGHT)
-            ratio_r = calculate_ratio(landmarks, EYE_R_TOP, EYE_R_BOT, EYE_R_LEFT, EYE_R_RIGHT)
-            ratio_m = calculate_ratio(landmarks, MOUTH_TOP, MOUTH_BOT, MOUTH_LEFT, MOUTH_RIGHT)
+            for face_landmarks in results.multi_face_landmarks:
+                # Nose Coordinates
+                nose = face_landmarks.landmark[NOSE_TIP]
+                current_state["nose_x"] = nose.x
+                current_state["nose_y"] = nose.y
 
-            # Stări curente pe baza threshold-urilor din config
-            l_is_closed = ratio_l < config["eye_closed_threshold"]
-            r_is_closed = ratio_r < config["eye_closed_threshold"]
-            mouth_is_open = ratio_m > config["mouth_open_threshold"]
-            both_are_closed = l_is_closed and r_is_closed
-            
-            now = time.time()
+                if not is_calibrated:
+                    calibration_frames.append((nose.x, nose.y))
+                    cv2.putText(image, f"Calibrare pozitie neutra... {len(calibration_frames)}/{CALIBRATION_FRAME_COUNT}",
+                                (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                    if len(calibration_frames) >= CALIBRATION_FRAME_COUNT:
+                        CENTER_X = sum(f[0] for f in calibration_frames) / len(calibration_frames)
+                        CENTER_Y = sum(f[1] for f in calibration_frames) / len(calibration_frames)
+                        is_calibrated = True
+                        print(f">> Calibrare finalizata! Nou Centru: ({CENTER_X:.3f}, {CENTER_Y:.3f}) <<")
+                    break 
+                
+                # Ratios
+                l_eye_v = euclidean_distance(face_landmarks.landmark[EYE_TOP], face_landmarks.landmark[EYE_BOTTOM])
+                l_eye_h = euclidean_distance(face_landmarks.landmark[EYE_LEFT], face_landmarks.landmark[EYE_RIGHT])
+                if l_eye_h > 0: current_state["left_eye_ratio"] = l_eye_v / l_eye_h
+                    
+                r_eye_v = euclidean_distance(face_landmarks.landmark[RIGHT_EYE_TOP], face_landmarks.landmark[RIGHT_EYE_BOTTOM])
+                r_eye_h = euclidean_distance(face_landmarks.landmark[RIGHT_EYE_LEFT], face_landmarks.landmark[RIGHT_EYE_RIGHT])
+                if r_eye_h > 0: current_state["right_eye_ratio"] = r_eye_v / r_eye_h
+                    
+                mouth_v_dist = euclidean_distance(face_landmarks.landmark[MOUTH_TOP], face_landmarks.landmark[MOUTH_BOTTOM])
+                mouth_h_dist = euclidean_distance(face_landmarks.landmark[MOUTH_LEFT], face_landmarks.landmark[MOUTH_RIGHT])
+                if mouth_h_dist > 0: current_state["mouth_ratio"] = mouth_v_dist / mouth_h_dist
 
-            # --- LOGICA GESTURILOR (TIMERE) ---
-            
-            # 1. AMBII OCHI
-            if both_are_closed:
-                if not both_was_closed:
-                    both_closed_start = now 
+                # JoyStick
+                dx = current_state["nose_x"] - CENTER_X
+                dy = current_state["nose_y"] - CENTER_Y
+
+                mouse_velocity_x = 0.0
+                mouse_velocity_y = 0.0
+
+                if abs(dx) > DEADZONE:
+                    active_dx = dx - (DEADZONE if dx > 0 else -DEADZONE)
+                    mouse_velocity_x = active_dx * MAX_SPEED
+
+                if abs(dy) > DEADZONE:
+                    active_dy = dy - (DEADZONE if dy > 0 else -DEADZONE)
+                    mouse_velocity_y = active_dy * MAX_SPEED
+
+                # ==========================================================
+                # INTEGRAREA ACTUATORULUI ȘI A LOGICII
+                # ==========================================================
+                if is_calibrated:
+                    # 1. Trimitem datele către Creier
+                    comenzi = logic.process(
+                        current_state["left_eye_ratio"], 
+                        current_state["right_eye_ratio"], 
+                        current_state["mouth_ratio"], 
+                        mouse_velocity_x, 
+                        mouse_velocity_y
+                    )
+                    
+                    # 2. Executăm comenzile fizice pe Windows
+                    if comenzi["move"] != (0.0, 0.0):
+                        mouse.move_cursor(comenzi["move"][0], comenzi["move"][1])
+                        
+                    if comenzi["scroll"] != (0.0, 0.0):
+                        mouse.scroll(
+                            comenzi["scroll"][1] * SCROLL_MULTIPLIER, 
+                            comenzi["scroll"][0] * SCROLL_MULTIPLIER
+                        )
+                        
+                    if comenzi["left_click"]: mouse.left_click()
+                    if comenzi["right_click"]: mouse.right_click()
+                    if comenzi["double_click"]: mouse.double_click()
+                    if comenzi["toggle_drag"]: mouse.toggle_drag()
+                    if comenzi["toggle_sleep"]: mouse.toggle_sleep()
+
+                    # 3. Kill-Switch pe tasta Space
+                    if mouse.check_failsafe():
+                        raise KeyboardInterrupt
+                # ==========================================================
+
+                # Grafica lui Persoana 1
+                center_px = (int(CENTER_X * w), int(CENTER_Y * h))
+                nose_px = (int(current_state["nose_x"] * w), int(current_state["nose_y"] * h))
+                deadzone_radius_px = int(DEADZONE * w)
+
+                cv2.circle(image, center_px, deadzone_radius_px, (255, 120, 0), 2)
+                cv2.circle(image, center_px, 3, (0, 0, 255), -1)
+
+                in_deadzone = (abs(dx) <= DEADZONE and abs(dy) <= DEADZONE)
+                nose_color = (0, 255, 0) if in_deadzone else (0, 0, 255)
+                cv2.circle(image, nose_px, 5, nose_color, -1)
+
+                if not in_deadzone:
+                    cv2.line(image, center_px, nose_px, (0, 165, 255), 2)
+
+                # HUD - Status pe ecran
+                if logic.is_sleeping:
+                    cv2.putText(image, "SLEEP MODE (ambii ochi >3s pt wake)", 
+                                (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                elif logic.is_dragging:
+                    cv2.putText(image, "DRAG MODE (wink stang scurt pt drop)", 
+                                (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
                 else:
-                    duration = now - both_closed_start
-                    # Trecerea în Sleep Mode după 3 secunde
-                    if duration > config["time_sleep_mode"]:
-                        mouse.toggle_sleep()
-                        both_closed_start = now + 2.0  # Prevenim comutarea repetată instantanee
-            else:
-                if both_was_closed:
-                    duration = now - both_closed_start
-                    # Dublu Click dacă a fost ținut între 1s și 3s
-                    if config["time_double_click"] < duration < config["time_sleep_mode"]:
-                        mouse.double_click()
-            
-            # 2. OCHI STÂNG (Izolat)
-            if l_is_closed and not r_is_closed:
-                if not l_was_closed:
-                    l_closed_start = now
-                else:
-                    duration = now - l_closed_start
-                    # Dacă e ținut peste 1s -> Declanșează Drag & Drop
-                    if duration > config["time_drag_drop"] and not mouse.is_dragging:
-                        mouse.toggle_drag_drop()
-            else:
-                if l_was_closed and not both_was_closed:
-                    duration = now - l_closed_start
-                    # La deschiderea ochiului, dacă wink-ul a fost scurt:
-                    if duration < config["time_drag_drop"]:
-                        if mouse.is_dragging:
-                            mouse.toggle_drag_drop() # Oprește Drag (execută Drop)
-                        else:
-                            mouse.left_click()       # Click simplu
+                    cv2.putText(image, "ACTIV", 
+                                (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-            # 3. OCHI DREPT (Izolat)
-            if r_is_closed and not l_is_closed:
-                if not r_was_closed:
-                    r_closed_start = now
-            else:
-                if r_was_closed and not both_was_closed:
-                    duration = now - r_closed_start
-                    # Wink scurt cu ochiul drept -> Click dreapta
-                    if duration < 1.0:
-                        mouse.right_click()
+        cv2.imshow('MotionClick - Produs Final', image)
+        key = cv2.waitKey(5) & 0xFF
 
-            # --- ACTUALIZARE STĂRI PENTRU CADRUL URMĂTOR ---
-            both_was_closed = both_are_closed
-            l_was_closed = l_is_closed and not r_is_closed
-            r_was_closed = r_is_closed and not l_is_closed
+        if key == ord('c'):
+            CENTER_X = current_state["nose_x"]
+            CENTER_Y = current_state["nose_y"]
+            print(f">> Recalibrare manuala reusita: Centru nou ({CENTER_X:.3f}, {CENTER_Y:.3f}) <<")
 
-            # --- MIȘCARE & SCROLL (JOYSTICK) ---
-            nose = landmarks[NOSE_TIP]
-            vel_x = calculate_velocity(nose.x, 0.5, 0.04, config["max_speed"])
-            vel_y = calculate_velocity(nose.y, 0.5, 0.04, config["max_speed"])
-
-            if mouth_is_open:
-                # Mod Scroll
-                mouse.scroll_continuous(vel_x, vel_y, config["scroll_speed"])
-            else:
-                # Mod Normal
-                mouse.move_cursor(vel_x, vel_y)
-
-        # Verificăm tasta ESC de urgență
-        mouse.check_failsafe()
-        
-        # Afișare pentru feedback vizual
-        cv2.imshow('Vision Engine Avansat', image)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        if key == ord('q'):
             break
 
+except KeyboardInterrupt:
+    print("\nProgram oprit de utilizator.")
+except Exception as e:
+    print(f"\n[EROARE] Programul s-a oprit: {e}")
+    import traceback
+    traceback.print_exc()
+finally:
     cap.release()
     cv2.destroyAllWindows()
-
-if __name__ == "__main__":
-    main()
+    print("Camera eliberata. La revedere!")
