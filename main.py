@@ -15,6 +15,7 @@ from mouse_engine import MouseController
 from gesture_logic import GestureProcessor
 from debug import DebugMonitor
 from overlay import JoystickOverlay
+from voice_engine import VoiceTyper
 
 mp_face_mesh = mp.solutions.face_mesh
 
@@ -26,13 +27,17 @@ current_state = {
 # JoyStick Settings
 CENTER_X, CENTER_Y = 0.5, 0.5
 DEADZONE = 0.04   
-MAX_SPEED = 100
-MIN_SPEED = 3.0
+MAX_SPEED = 300
+MIN_SPEED = 6.0
 
 # Inițializăm modulele voastre
 screen_w, screen_h = pyautogui.size()
 mouse = MouseController(screen_w, screen_h)
-logic = GestureProcessor() 
+logic = GestureProcessor()
+
+voice = VoiceTyper(language="ro-RO")
+voice.start_background()
+
 debugger = DebugMonitor(print_interval=0.3)
 hud_overlay = JoystickOverlay(size=160, deadzone_ratio=DEADZONE, max_reach=0.15)
 
@@ -235,5 +240,6 @@ except Exception as e:
 finally:
     cap.release()
     cv2.destroyAllWindows()
+    voice.stop()
     hud_overlay.close()
     print("Camera eliberata. La revedere!")
