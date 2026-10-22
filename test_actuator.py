@@ -1,56 +1,37 @@
 import time
 from shared_state import current_state, config
-from mock_generator import update_mock_state
+from mock_generator import update_mock_data
 from math_utils import map_to_screen
 from mouse_engine import MouseController
 
 def main():
-    mouse = MouseController()
-    print("==========================================")
-    print("Sistemul de control a pornit.")
-    print("Mouse-ul ar trebui să se miște singur acum.")
-    print("-> Apasă tasta ESC pentru a opri imediat.")
-    print("==========================================")
+    mouse = MouseController(config["screen_width"], config["screen_height"])
+    print("Actuator COMPLET pornit. Ține apăsat SPACE pentru a opri.")
+    
+    # Pauză să pui mâna pe Space
+    time.sleep(2)
     
     while True:
-        # 1. Preluăm datele (acum simulate, mai târziu le va prelua colegul din cameră)
-        update_mock_state()
+        # 1. Generezi datele false
+        update_mock_data()
         
-        # Extragem zona activă din configurație pentru a păstra codul curat
-        az = config["active_zone"]
+        # 2. Mapezi coordonatele pe ecran
+        target_x = map_to_screen(current_state["nose_x"], config["active_zone"]["min_x"], config["active_zone"]["max_x"], config["screen_width"])
+        target_y = map_to_screen(current_state["nose_y"], config["active_zone"]["min_y"], config["active_zone"]["max_y"], config["screen_height"])
         
-        # 2. Mapăm coordonatele nasului pe rezoluția ecranului
-        target_x = map_to_screen(
-            raw_val=current_state["nose_x"],
-            min_bound=az["min_x"],
-            max_bound=az["max_x"],
-            max_res=config["screen_width"]
-        )
+        # 3. Miști cursorul netezit
+        mouse.move_cursor(target_x, target_y, config["smoothing_factor"])
         
-        target_y = map_to_screen(
-            raw_val=current_state["nose_y"],
-            min_bound=az["min_y"],
-            max_bound=az["max_y"],
-            max_res=config["screen_height"]
-        )
+        # 4. Apelezi acțiunile (Click-uri, Drag, Scroll) pe baza testului
+        if current_state["test_left_click"]: mouse.left_click()
+        if current_state["test_right_click"]: mouse.right_click()
+        if current_state["test_double_click"]: mouse.double_click()
+        if current_state["test_toggle_drag"]: mouse.toggle_drag()
         
-        # 3. Trimitem noile coordonate către motorul care controlează Windows-ul
-        mouse.move(target_x, target_y, config["smoothing_factor"])
+        if current_state["test_scroll_y"] != 0 or current_state["test_scroll_x"] != 0:
+            mouse.scroll(current_state["test_scroll_y"], current_state["test_scroll_x"])
         
-        # 4. Verificăm dacă s-a declanșat o acțiune
-        if current_state["action_click"]:
-            mouse.click()
-            current_state["action_click"] = False 
-            
-        if current_state["action_right_click"]:
-            mouse.right_click()
-            current_state["action_right_click"] = False 
-            
-        if current_state["action_scroll"] != 0:
-            mouse.scroll(current_state["action_scroll"])
-            # Nu resetăm manual aici, lăsăm simulatorul/AI-ul să decidă când se oprește scroll-ul
-            
-        # 5. Sistemul de siguranță și limitarea utilizării procesorului
+        # 5. Verifici Kill-Switch-ul
         mouse.check_failsafe()
         
         time.sleep(0.01)
