@@ -27,7 +27,7 @@ current_state = {
 # JoyStick Settings
 CENTER_X, CENTER_Y = 0.5, 0.5
 DEADZONE = 0.04   
-MAX_SPEED = 25    
+MAX_SPEED = 200    # Crește pentru cursor mai rapid, scade pentru mai lent
 
 # Multiplicator pentru scroll (ajustează dacă e prea rapid/lent)
 SCROLL_MULTIPLIER = 3
