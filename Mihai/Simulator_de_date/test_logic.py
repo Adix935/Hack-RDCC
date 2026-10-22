@@ -36,13 +36,13 @@ class GestureProcessor:
                     print(f"[ACȚIUNE] CLICK STÂNGA! (A ținut ochii închiși {self.eyes_closed_frames} cadre)")
                     
                     # DECOMENTEAZĂ LINIA DE MAI JOS DUPĂ CE VEZI CĂ LOGICA MERGE BINE ÎN CONSOLĂ
-                    # pyautogui.click()
+                    pyautogui.click()
                     
                 elif self.eyes_closed_frames > self.max_frames_for_click:
                     print(f"[ACȚIUNE] DOUBLE CLICK! (A ținut ochii închiși mult: {self.eyes_closed_frames} cadre)")
                     
                     # DECOMENTEAZĂ MAI JOS PT DUBLU CLICK
-                    # pyautogui.doubleClick()
+                    pyautogui.doubleClick()
                 
                 # Resetăm contorul pentru următorul clipit
                 self.eyes_closed_frames = 0
@@ -52,7 +52,7 @@ class GestureProcessor:
             print("⬇️ [ACȚIUNE] SCROLL JOS...")
             
             # DECOMENTEAZĂ LINIA DE MAI JOS PENTRU SCROLL REAL
-            # pyautogui.scroll(-40) # -40 înseamnă scroll în jos. Ajustează valoarea pentru viteză.
+            pyautogui.scroll(-40) # -40 înseamnă scroll în jos. Ajustează valoarea pentru viteză.
 
 
 # ==========================================
