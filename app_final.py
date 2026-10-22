@@ -9,17 +9,20 @@ import pyautogui
 import winsound
 import time
 
-# Importăm motorul de mouse de la Persoana 2
-from mouse_engine import MouseController
-
+# Inițializare MediaPipe
 mp_face_mesh = mp.solutions.face_mesh
+
+# Importăm modulele voastre
+from mouse_engine import MouseController
+from debug import DebugMonitor
+from overlay import JoystickOverlay
 
 CONFIG_FILE = "config.json"
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
 # ==========================================
-# 1. MOTORUL DE GESTURI (Real-Time Audio Feedback)
+# 1. MOTORUL DE GESTURI (Anti-False-Positives)
 # ==========================================
 class GestureProcessor:
     def __init__(self, ui_callback, mouse_controller):
@@ -30,16 +33,17 @@ class GestureProcessor:
         self.right_start = None
         self.both_start = None
         
-        # Timpii tăi optimizați:
-        self.min_click_time = 0.1  # 100ms pt click normal
-        self.time_drag = 0.7       # 0.7s pt Dublu Click / Drag & Drop
-        self.time_sleep = 2.5      # 2.5s pt Sleep Mode
+        # Timpi ajustați pentru a evita gesturile accidentale
+        self.min_click_time = 0.2     # 200ms minim pentru wink (ignoră diferențele de clipire)
+        self.time_drag_ready = 0.7    # 700ms pentru a iniția Drag & Drop
+        self.time_sleep = 2.5         # 2.5s pentru Sleep Mode
         
         self.is_asleep = False
         self.is_dragging = False
         
-        # FLAG MAGIC: Ne asigură că acțiunea se execută o singură dată per clipire
         self.action_done = False
+        self.drag_beep_played = False
+        self.last_blink_end = 0.0     # Cooldown după o clipire cu ambii ochi
 
     def process_data(self, left_eye, right_eye, mouth_ratio, vel_x, vel_y, config):
         blink_threshold = config.get("blink_threshold", 0.20)
@@ -50,87 +54,79 @@ class GestureProcessor:
         mouth_open = mouth_ratio > mouth_threshold
         
         current_time = time.time()
+        
+        # Protecție: Ignorăm wink-urile bruște la mai puțin de 0.3s după o clipire normală
+        in_cooldown = (current_time - self.last_blink_end) < 0.3
 
-        # --- 1. AMBII OCHI ÎNCHIȘI (Sleep / Wake) ---
+        # ===============================================
+        # A. AMBII OCHI (Drag & Drop și Sleep)
+        # ===============================================
         if left_closed and right_closed:
             if self.both_start is None: 
                 self.both_start = current_time
-                self.action_done = False  # Resetăm starea la închidere
+                self.action_done = False
+                self.drag_beep_played = False
             self.left_start, self.right_start = None, None
             
-            # Verificăm LIVE timpul
             duration = current_time - self.both_start
+            
+            if duration >= self.time_drag_ready and not self.drag_beep_played and not self.action_done:
+                winsound.Beep(500, 150)
+                self.drag_beep_played = True
+            
             if duration >= self.time_sleep and not self.action_done:
                 self.is_asleep = not self.is_asleep
                 if self.is_asleep:
                     self.ui_callback("🌙 MOD SLEEP (Pauză)", "yellow")
                     self.mouse.toggle_sleep()
-                    winsound.Beep(1000, 300) # Auzi asta în timp ce ții ochii închiși!
+                    winsound.Beep(1000, 300)
                 else:
                     self.ui_callback("☀️ MOD ACTIV", "#2FA572")
                     self.mouse.toggle_sleep()
                     winsound.Beep(2000, 150)
                     winsound.Beep(2500, 150)
-                self.action_done = True # Împiedică repetarea sunetului
-
-        # --- 2. DOAR OCHIUL STÂNG (Drag & Drop) ---
-        elif left_closed and not right_closed:
-            if self.left_start is None: 
-                self.left_start = current_time
-                self.action_done = False
-            self.both_start, self.right_start = None, None
-            
-            # Verificăm LIVE timpul pentru Drag
-            duration = current_time - self.left_start
-            if duration >= self.time_drag and not self.action_done and not self.is_asleep:
-                if self.is_dragging:
-                    self.mouse.toggle_drag() # Drop
-                    self.is_dragging = False
-                    self.ui_callback("☀️ MOD ACTIV", "#2FA572")
-                    winsound.Beep(1500, 200)
-                else:
-                    self.mouse.toggle_drag() # Drag
-                    self.is_dragging = True
-                    self.ui_callback("✊ ACTIV (TRAGE FIȘIERUL)", "#FFA500")
-                    winsound.Beep(2500, 200)
                 self.action_done = True
-
-        # --- 3. DOAR OCHIUL DREPT (Click Dreapta - doar numără) ---
-        elif right_closed and not left_closed:
-            if self.right_start is None: 
-                self.right_start = current_time
-                self.action_done = False
-            self.both_start, self.left_start = None, None
-
-        # --- 4. LA DESCHIDEREA OCHILOR (Acțiuni scurte de click) ---
-        elif not left_closed and not right_closed:
-            
-            # Dublu Click (ambii ochi)
+                
+        else:
             if self.both_start is not None:
                 duration = current_time - self.both_start
-                # Face dublu click doar dacă ai ținut destul (0.7s) dar n-ai atins sleep-ul (2.5s)
-                if not self.is_asleep and not self.action_done and duration >= self.time_drag:
-                    self.mouse.double_click()
+                if not self.is_asleep and not self.action_done and self.time_drag_ready <= duration < 2.0:
+                    self.mouse.toggle_drag()
+                    self.is_dragging = not self.is_dragging
+                    if self.is_dragging:
+                        self.ui_callback("✊ ACTIV (TRAGE FIȘIERUL)", "#FFA500")
+                        winsound.Beep(2500, 200)
+                    else:
+                        self.ui_callback("☀️ MOD ACTIV", "#2FA572")
+                        winsound.Beep(1500, 200)
                 self.both_start = None
+                self.last_blink_end = current_time # Resetăm cooldown-ul la deschiderea ochilor
 
-            # Click Simplu (ochi stâng)
-            elif self.left_start is not None:
-                duration = current_time - self.left_start
-                # Dacă am deschis ochiul repede și nu se activase deja Drag-ul
-                if not self.is_asleep and not self.action_done and duration >= self.min_click_time:
-                    self.mouse.left_click()
-                self.left_start = None
+        # ===============================================
+        # B. OCHI STÂNG (Click normal)
+        # ===============================================
+        if left_closed and not right_closed and not in_cooldown:
+            if self.left_start is None: self.left_start = current_time
+        elif not left_closed and self.left_start is not None:
+            duration = current_time - self.left_start
+            if not self.is_asleep and duration >= self.min_click_time:
+                self.mouse.left_click()
+            self.left_start = None
 
-            # Click Dreapta (ochi drept)
-            elif self.right_start is not None:
-                duration = current_time - self.right_start
-                if not self.is_asleep and not self.action_done and duration >= self.min_click_time:
-                    self.mouse.right_click()
-                self.right_start = None
-                
-            self.action_done = False # Resetăm complet
+        # ===============================================
+        # C. OCHI DREPT (Click dreapta)
+        # ===============================================
+        if right_closed and not left_closed and not in_cooldown:
+            if self.right_start is None: self.right_start = current_time
+        elif not right_closed and self.right_start is not None:
+            duration = current_time - self.right_start
+            if not self.is_asleep and duration >= self.min_click_time:
+                self.mouse.right_click()
+            self.right_start = None
 
-        # --- 5. CURSOR & SCROLL ---
+        # ===============================================
+        # D. CURSOR & SCROLL
+        # ===============================================
         if not self.is_asleep:
             if mouth_open:
                 SCROLL_SPEED = 3
@@ -139,12 +135,12 @@ class GestureProcessor:
                 sens = config.get("mouse_sensitivity", 5) / 5.0
                 self.mouse.move_cursor(vel_x * sens, vel_y * sens)
 
-# ==========================================
-# 2. UI & MEDIA PIPE THREAD
-# ==========================================
 def euclidean_distance(p1, p2):
     return math.sqrt((p2.x - p1.x)**2 + (p2.y - p1.y)**2 + (p2.z - p1.z)**2)
 
+# ==========================================
+# 2. UI & MEDIA PIPE THREAD
+# ==========================================
 class ControlPanel:
     def __init__(self, root):
         self.root = root
@@ -189,7 +185,6 @@ class ControlPanel:
         self.info_label = ctk.CTkLabel(root, text="*Aplicația este setată să pornească cu Windows", font=ctk.CTkFont(size=11, slant="italic"), text_color="gray")
         self.info_label.pack(pady=10)
 
-    # ... [Funcțiile de salvare config rămân identice] ...
     def update_sens_label(self, value):
         self.lbl_sens.configure(text=f"Sensibilitate Mouse: {int(value)}")
         self.save_config()
@@ -203,8 +198,7 @@ class ControlPanel:
         self.status_label.configure(text=text, text_color=color)
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
-            with open(CONFIG_FILE, "r") as f:
-                return json.load(f)
+            with open(CONFIG_FILE, "r") as f: return json.load(f)
         return {"blink_threshold": 0.20, "mouth_threshold": 0.05, "mouse_sensitivity": 5}
     def save_config(self, *args):
         self.config = {"mouse_sensitivity": int(self.sens_slider.get()), "blink_threshold": round(self.blink_slider.get(), 2), "mouth_threshold": round(self.mouth_slider.get(), 2)}
@@ -221,16 +215,22 @@ class ControlPanel:
             self.update_status_label("⚫ OPRIT", "gray")
 
     def run_camera_loop(self):
-        """Aici am integrat codul MediaPipe de la P1 și P2"""
         face_mesh = mp_face_mesh.FaceMesh(max_num_faces=1, refine_landmarks=True, min_detection_confidence=0.5, min_tracking_confidence=0.5)
-        
         cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
         
+        debugger = DebugMonitor(print_interval=0.3)
+        
         CENTER_X, CENTER_Y = 0.5, 0.5
-        DEADZONE = 0.04   
-        MAX_SPEED = 250
+        DEADZONE = 0.04
+        MAX_SPEED = 100
+        MIN_SPEED = 3.0
+        
         is_calibrated = False
         calibration_frames = []
+        
+        hud_overlay = JoystickOverlay(size=160, deadzone_ratio=DEADZONE, max_reach=0.15)
+        
+        current_state = {"nose_x": 0.0, "nose_y": 0.0, "left_eye_ratio": 0.3, "right_eye_ratio": 0.3, "mouth_ratio": 0.1}
 
         while self.is_running and cap.isOpened():
             success, image = cap.read()
@@ -244,56 +244,78 @@ class ControlPanel:
             if results.multi_face_landmarks:
                 for face_landmarks in results.multi_face_landmarks:
                     nose = face_landmarks.landmark[1]
+                    current_state["nose_x"], current_state["nose_y"] = nose.x, nose.y
                     
                     if not is_calibrated:
                         calibration_frames.append((nose.x, nose.y))
-                        cv2.putText(image, f"Calibrare: Tine capul drept... {len(calibration_frames)}/45", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                        cv2.putText(image, f"Calibrare pozitie neutra... {len(calibration_frames)}/45", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
                         if len(calibration_frames) >= 45:
                             CENTER_X = sum(f[0] for f in calibration_frames) / 45
                             CENTER_Y = sum(f[1] for f in calibration_frames) / 45
                             is_calibrated = True
                         break 
                     
-                    # Ratios (Ochi & Gură)
                     l_eye_v = euclidean_distance(face_landmarks.landmark[159], face_landmarks.landmark[145])
                     l_eye_h = euclidean_distance(face_landmarks.landmark[33], face_landmarks.landmark[133])
-                    left_ratio = l_eye_v / l_eye_h if l_eye_h > 0 else 0.3
+                    current_state["left_eye_ratio"] = l_eye_v / l_eye_h if l_eye_h > 0 else 0.3
                     
                     r_eye_v = euclidean_distance(face_landmarks.landmark[386], face_landmarks.landmark[374])
                     r_eye_h = euclidean_distance(face_landmarks.landmark[362], face_landmarks.landmark[263])
-                    right_ratio = r_eye_v / r_eye_h if r_eye_h > 0 else 0.3
+                    current_state["right_eye_ratio"] = r_eye_v / r_eye_h if r_eye_h > 0 else 0.3
                     
                     mouth_v = euclidean_distance(face_landmarks.landmark[13], face_landmarks.landmark[14])
                     mouth_h = euclidean_distance(face_landmarks.landmark[78], face_landmarks.landmark[308])
-                    mouth_ratio = mouth_v / mouth_h if mouth_h > 0 else 0.1
+                    current_state["mouth_ratio"] = mouth_v / mouth_h if mouth_h > 0 else 0.1
 
-                    # JoyStick Velocity
+                    face_width = euclidean_distance(face_landmarks.landmark[33], face_landmarks.landmark[263])
+                    if face_width > 0:
+                        mouth_width_ratio = mouth_h / face_width
+                        if mouth_width_ratio < 0.33:
+                            CENTER_X, CENTER_Y = nose.x, nose.y
+
                     dx = nose.x - CENTER_X
                     dy = nose.y - CENTER_Y
                     vel_x, vel_y = 0.0, 0.0
 
-                    if abs(dx) > DEADZONE: vel_x = (dx - (DEADZONE if dx > 0 else -DEADZONE)) * MAX_SPEED
-                    if abs(dy) > DEADZONE: vel_y = (dy - (DEADZONE if dy > 0 else -DEADZONE)) * MAX_SPEED
+                    if abs(dx) > DEADZONE: 
+                        active_dx = dx - (DEADZONE if dx > 0 else -DEADZONE)
+                        vel_x = (1 if dx > 0 else -1) * (abs(active_dx) * MAX_SPEED + MIN_SPEED)
+                    if abs(dy) > DEADZONE: 
+                        active_dy = dy - (DEADZONE if dy > 0 else -DEADZONE)
+                        vel_y = (1 if dy > 0 else -1) * (abs(active_dy) * MAX_SPEED + MIN_SPEED)
 
-                    # Procesare și trimitere comenzi
-                    self.processor.process_data(left_ratio, right_ratio, mouth_ratio, vel_x, vel_y, self.config)
+                    # Procesare logică gesturi
+                    self.processor.process_data(current_state["left_eye_ratio"], current_state["right_eye_ratio"], current_state["mouth_ratio"], vel_x, vel_y, self.config)
 
-                    # Grafica de debug pe cameră
+                    # Desenare elemente vizuale pe cameră
                     center_px = (int(CENTER_X * w), int(CENTER_Y * h))
-                    nose_px = (int(nose.x * w), int(nose.y * h))
-                    cv2.circle(image, center_px, int(DEADZONE * w), (255, 120, 0), 2)
-                    cv2.circle(image, nose_px, 5, (0, 0, 255), -1)
-                    if abs(dx) > DEADZONE or abs(dy) > DEADZONE:
+                    nose_px = (int(current_state["nose_x"] * w), int(current_state["nose_y"] * h))
+                    deadzone_radius_px = int(DEADZONE * w)
+
+                    cv2.circle(image, center_px, deadzone_radius_px, (255, 120, 0), 2)
+                    cv2.circle(image, center_px, 3, (0, 0, 255), -1)
+
+                    in_deadzone = (abs(dx) <= DEADZONE and abs(dy) <= DEADZONE)
+                    nose_color = (0, 255, 0) if in_deadzone else (0, 0, 255)
+                    cv2.circle(image, nose_px, 5, nose_color, -1)
+
+                    if not in_deadzone:
                         cv2.line(image, center_px, nose_px, (0, 165, 255), 2)
+
+                    # Update Overlay HUD și Terminal Debug
+                    hud_overlay.update(dx, dy, in_deadzone)
+                    debugger.draw_hud(image, current_state, vel_x, vel_y)
+                    debugger.print_terminal(current_state, vel_x, vel_y)
 
             cv2.imshow('MotionClick - Camera', image)
             
-            # Recalibrare manuală din fereastra camerei
+            # Recalibrare manuală cu 'c' pe fereastra camerei
             if cv2.waitKey(5) & 0xFF == ord('c') and results.multi_face_landmarks:
-                CENTER_X, CENTER_Y = nose.x, nose.y
+                CENTER_X, CENTER_Y = current_state["nose_x"], current_state["nose_y"]
 
         cap.release()
         cv2.destroyAllWindows()
+        hud_overlay.close()
 
 if __name__ == "__main__":
     root = ctk.CTk()
