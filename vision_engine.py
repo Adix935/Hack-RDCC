@@ -16,9 +16,9 @@ current_state = {
 CENTER_X = 0.5
 CENTER_Y = 0.5
 DEADZONE = 0.04   # 4% zonă moartă în jurul centrului pentru repaus
-MAX_SPEED = 25    # Viteza de deplasare a cursorului
+# Cursor speed
+MAX_SPEED = 25
 
-# Variabile pentru calibrarea automată la pornire
 is_calibrated = False
 calibration_frames = []
 CALIBRATION_FRAME_COUNT = 45  # ~1.5 secunde la 30 fps
@@ -31,7 +31,7 @@ face_mesh = mp_face_mesh.FaceMesh(
 )
 
 def euclidean_distance(p1, p2):
-    return math.hypot(p2.x - p1.x, p2.y - p1.y)
+    return math.sqrt((p2.x - p1.x)**2 + (p2.y - p1.y)**2 + (p2.z - p1.z)**2)
 
 NOSE_TIP = 1
 EYE_TOP = 159
@@ -128,9 +128,9 @@ while cap.isOpened():
                 cv2.line(image, center_px, nose_px, (0, 165, 255), 2)
 
             print(f"Nose: ({current_state['nose_x']:.2f}, {current_state['nose_y']:.2f}) | "
-                  f"Vx: {mouse_velocity_x:5.2f} | Vy: {mouse_velocity_y:5.2f} | "
-                  f"L_Eye: {current_state['left_eye_ratio']:.2f} | R_Eye: {current_state['right_eye_ratio']:.2f} | "
-                  f"Mouth: {current_state['mouth_ratio']:.2f}")
+                f"Vx: {mouse_velocity_x:5.2f} | Vy: {mouse_velocity_y:5.2f} | "
+                f"L_Eye: {current_state['left_eye_ratio']:.2f} | R_Eye: {current_state['right_eye_ratio']:.2f} | "
+                f"Mouth: {current_state['mouth_ratio']:.2f}")
             
     cv2.imshow('Vision Engine - Persoana 1', image)
     key = cv2.waitKey(5) & 0xFF
