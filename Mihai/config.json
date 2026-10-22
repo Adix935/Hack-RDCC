@@ -1,5 +1,5 @@
 {
     "mouse_sensitivity": 5,
-    "blink_threshold": 0.23,
+    "blink_threshold": 0.3,
     "mouth_threshold": 0.07
 }
