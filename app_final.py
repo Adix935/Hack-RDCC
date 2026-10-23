@@ -8,6 +8,11 @@ import threading
 import pyautogui
 import winsound
 import time
+import pyautogui
+from mouse_engine import MouseController
+from gesture_logic import GestureProcessor
+from voice_engine import VoiceTyper  # <-- Adaugă această linie
+
 
 # Inițializare MediaPipe
 mp_face_mesh = mp.solutions.face_mesh
@@ -153,6 +158,9 @@ class ControlPanel:
         screen_w, screen_h = pyautogui.size()
         self.mouse_ctrl = MouseController(screen_w, screen_h)
         self.processor = GestureProcessor(ui_callback=self.update_status_label, mouse_controller=self.mouse_ctrl)
+        voice = VoiceTyper(language="ro-RO")
+        voice.start_background()
+
 
         self.title_label = ctk.CTkLabel(root, text="Setări Accesibilitate", font=ctk.CTkFont(size=22, weight="bold"))
         self.title_label.pack(pady=(20, 20))
@@ -316,6 +324,7 @@ class ControlPanel:
         cap.release()
         cv2.destroyAllWindows()
         hud_overlay.close()
+        voice.stop()
 
 if __name__ == "__main__":
     root = ctk.CTk()
