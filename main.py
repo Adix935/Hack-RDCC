@@ -26,8 +26,8 @@ current_state = {
 # JoyStick Settings
 CENTER_X, CENTER_Y = 0.5, 0.5
 DEADZONE = 0.04   
-MAX_SPEED = 100
-MIN_SPEED = 3.0
+MAX_SPEED = 150
+MIN_SPEED = 5.0
 
 # Inițializăm modulele voastre
 screen_w, screen_h = pyautogui.size()
@@ -175,9 +175,14 @@ try:
                         mouse.toggle_drag()
                         # Fără threading, pauza va fi de doar 200ms (insesizabil la o acțiune intenționată)
                         if logic.is_dragging:
-                            winsound.Beep(500, 200) # Ton mai ascuțit când prinzi fișierul
+                            winsound.Beep(1500, 200) # Ton mai ascuțit când prinzi fișierul
                         else:
-                            winsound.Beep(350, 200) # Ton mai grav când îl lași
+                            winsound.Beep(2500, 200) # Ton mai grav când îl lași
+
+                    if comenzi["drag_ready_beep"]:
+                        print(">>>>> AI-UL A DECLANSAT BEEP-UL DE 0.4s! <<<<<")
+                        threading.Thread(target=winsound.Beep, args=(1500, 100), daemon=True).start()
+                    
                     if comenzi["toggle_sleep"]: mouse.toggle_sleep()
 
                     # 3. Kill-Switch pe tasta Space

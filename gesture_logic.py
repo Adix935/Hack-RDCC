@@ -4,6 +4,7 @@ class GestureProcessor:
     def __init__(self):
         # Praguri pentru detectie
         self.EYE_THRESH = 0.22
+        self.WINK_THRESH = 0.16
         self.MOUTH_THRESH = 0.35
 
         # Timere pentru ochi (salvează momentul în care ochiul s-a închis)
@@ -33,12 +34,16 @@ class GestureProcessor:
         # 1. Determinăm starea brută a ochilor și a gurii
         l_closed = ratio_l < self.EYE_THRESH
         r_closed = ratio_r < self.EYE_THRESH
+
+        l_wink_closed = ratio_l < self.WINK_THRESH
+        r_wink_closed = ratio_r < self.WINK_THRESH
+
         mouth_open = ratio_mouth > self.MOUTH_THRESH
 
         # Stări exclusive (să nu interpretăm clipitul normal ca wink)
         both_closed = l_closed and r_closed
-        left_wink = l_closed and not r_closed
-        right_wink = r_closed and not l_closed
+        left_wink = l_wink_closed and (ratio_r > self.EYE_THRESH + 0.02)
+        right_wink = r_wink_closed and (ratio_l > self.EYE_THRESH + 0.02)
 
         # Dicționarul cu comenzi pe care actuatorul le va citi și executa
         commands = {
@@ -99,14 +104,12 @@ class GestureProcessor:
         else:
             if self.was_left_closed and not self.was_both_closed:
                 duration = now - self.t_left_closed
-                # Dacă a fost ținut sub 1 secundă (Wink scurt)
+                # Wink intenționat: ținut minim 0.15s, maxim 1s
                 if duration <= 1.0 and not self.action_triggered_this_blink:
                     if self.is_dragging:
-                        # Dacă eram în Drag, un wink scurt deblochează (Drop)
                         commands["toggle_drag"] = True
                         self.is_dragging = False
                     else:
-                        # Altfel e click normal
                         commands["left_click"] = True
 
         # ==========================================
