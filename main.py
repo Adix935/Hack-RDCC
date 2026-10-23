@@ -208,7 +208,7 @@ class App:
         status_msg = "Pornesc camera..."
         status_col = "#F5C542"
         status_timer = 0
-        
+
         try:
             while cap.isOpened() and not self.stop_event.is_set():
                 success, image = cap.read()
@@ -222,7 +222,9 @@ class App:
                 results = face_mesh.process(rgb_image)
 
                 if results.multi_face_landmarks:
+                    comenzi = {}
                     for face_landmarks in results.multi_face_landmarks:
+
                         # Nose Coordinates
                         nose = face_landmarks.landmark[NOSE_TIP]
                         current_state["nose_x"] = nose.x
@@ -237,7 +239,7 @@ class App:
                                 CENTER_Y = sum(f[1] for f in calibration_frames) / len(calibration_frames)
                                 is_calibrated = True
                                 print(f">> Calibrare finalizata! Nou Centru: ({CENTER_X:.3f}, {CENTER_Y:.3f}) <<")
-                            break 
+                            
                         
                         # Ratios
                         l_eye_v = euclidean_distance(face_landmarks.landmark[EYE_TOP], face_landmarks.landmark[EYE_BOTTOM])

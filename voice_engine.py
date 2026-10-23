@@ -29,13 +29,43 @@ class VoiceTyper:
                 text = self.recognizer.recognize_google(audio, language=self.language)
                 print(f"[VOICE] Recunoscut: '{text}'")
                 
-                # Tastează textul caracter cu caracter
-                pyautogui.write(text, interval=0.03)
+                text_procesat = text.lower().strip()
+
+                # 1. Șterge absolut tot din câmpul de text
+                if any(cmd in text_procesat for cmd in ["șterge tot", "sterge tot", "șterge to", "sterge to", "anulează tot", "anuleaza tot", "clear"]):
+                    pyautogui.hotkey('ctrl', 'a')
+                    pyautogui.press('backspace')
+                    print("[VOICE] Comandă executată: Șterge tot")
+
+                # 2. Șterge ultimul cuvânt scris
+                elif any(cmd in text_procesat for cmd in ["șterge", "sterge", "șterge cuvântul", "sterge cuvantul", "șterge cuvântu", "sterge cuvantu"]):
+                    pyautogui.hotkey('ctrl', 'backspace')
+                    print("[VOICE] Comandă executată: Șterge ultimul cuvânt")
+
+                # 3. Șterge un singur caracter (o singură literă)
+                elif any(cmd in text_procesat for cmd in ["șterge litera", "sterge litera", "șterge o liter", "sterge o liter", "șterge un caracter", "sterge un caracter", "șterge un caracte", "sterge un caracte", "backspace"]):
+                    pyautogui.press('backspace')
+                    print("[VOICE] Comandă executată: Șterge o literă")
+
+                # 4. Comanda de căutare (tastează ce urmează după "caută" și apasă Enter)
+                elif text_procesat.startswith("caută"):
+                    cuvant_cautat = text_procesat.replace("caută", "").strip()
+                    pyautogui.write(cuvant_cautat, interval=0.03)
+                    time.sleep(0.2)
+                    pyautogui.press('enter')
+                    print(f"[VOICE] Comandă executată: Căutare după '{cuvant_cautat}'")
+
+                # 5. Mod dictare normală: doar scrie textul
+                elif text_procesat.startswith("scrie"):
+                    text_de_scris = text_procesat.replace("scrie", "", 1).strip()
+                    if text_de_scris:
+                        pyautogui.write(text_de_scris + " ", interval=0.03)
+                        print(f"[VOICE] Comandă executată: Scrie '{text_de_scris}'")
+
+                # 6. Orice altceva este ignorat 
+                else:
+                    print(f"[VOICE] Ignorat (fără comandă validă): '{text_procesat}'")
                 
-                # Apasă Enter automat pentru a trimite căutarea
-                time.sleep(0.2)
-                pyautogui.press('enter')
-                print("[VOICE] Text tastat și Enter apăsat!")
                 return text
                 
             except sr.WaitTimeoutError:
@@ -50,22 +80,52 @@ class VoiceTyper:
         """Buclă care ascultă comanda de activare 'scrie'."""
         with sr.Microphone() as source:
             self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
-            print("[VOICE] Mod continuu pornit. Spune 'scrie [ce vrei]' oricând.")
+            print("[VOICE] Mod continuu pornit. Aștept comenzi ('scrie', 'caută', 'șterge')...")
             
             while self.is_running:
                 try:
                     audio = self.recognizer.listen(source, timeout=3, phrase_time_limit=6)
-                    raw_text = self.recognizer.recognize_google(audio, language=self.language).lower()
+                    raw_text = self.recognizer.recognize_google(audio, language=self.language)
                     print(f"[VOICE Buffer]: {raw_text}")
                     
-                    # Dacă zice "scrie ..." sau "google ..."
-                    if raw_text.startswith("scrie") or raw_text.startswith("scrie"):
-                        query = raw_text.replace("scrie", "").replace("scrie", "").strip()
-                        if query:
-                            print(f"[VOICE] Execut căutare pentru: '{query}'")
-                            pyautogui.write(query, interval=0.03)
+                    text_procesat = raw_text.lower().strip()
+
+                    # 1. Șterge absolut tot (Cea mai lungă/specifică)
+                    if any(cmd in text_procesat for cmd in ["șterge tot", "sterge tot", "șterge to", "sterge to", "anulează tot", "anuleaza tot", "clear"]):
+                        pyautogui.hotkey('ctrl', 'a')
+                        pyautogui.press('backspace')
+                        print("[VOICE] Comandă executată: Șterge tot")
+
+                    # 2. Șterge un singur caracter (Mutat mai sus pentru că e mai specific decât "șterge" simplu)
+                    elif any(cmd in text_procesat for cmd in ["șterge litera", "sterge litera", "șterge o liter", "sterge o liter", "șterge o lite", "sterge o lite", "șterge un caracter", "sterge un caracter", "șterge un caracte", "sterge un caracte", "backspace"]):
+                        pyautogui.press('backspace')
+                        print("[VOICE] Comandă executată: Șterge o literă")
+
+                    # 3. Șterge ultimul cuvânt (Lăsat ultimul pentru că "șterge" face match pe aproape orice)
+                    elif any(cmd in text_procesat for cmd in ["șterge", "sterge", "șterge cuvântul", "sterge cuvantul", "șterge cuvântu", "sterge cuvantu"]):
+                        pyautogui.hotkey('ctrl', 'backspace')
+                        print("[VOICE] Comandă executată: Șterge ultimul cuvânt")
+
+                    # 4. Comanda de căutare (tastează + Enter)
+                    elif text_procesat.startswith("caută"):
+                        cuvant_cautat = text_procesat.replace("caută", "", 1).strip()
+                        if cuvant_cautat:
+                            pyautogui.write(cuvant_cautat, interval=0.03)
+                            time.sleep(0.2)
                             pyautogui.press('enter')
-                            
+                            print(f"[VOICE] Comandă executată: Căutare după '{cuvant_cautat}'")
+
+                    # 5. Dictare normală: doar scrie textul
+                    elif text_procesat.startswith("scrie"):
+                        text_de_scris = text_procesat.replace("scrie", "", 1).strip()
+                        if text_de_scris:
+                            pyautogui.write(text_de_scris + " ", interval=0.03)
+                            print(f"[VOICE] Comandă executată: Scrie '{text_de_scris}'")
+
+                    # 6. Ignoră ce nu e comandă
+                    else:
+                        print(f"[VOICE] Ignorat (fără comandă validă): '{text_procesat}'")
+
                 except (sr.WaitTimeoutError, sr.UnknownValueError):
                     pass
                 except Exception as e:
