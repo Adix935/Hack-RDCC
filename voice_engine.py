@@ -47,10 +47,10 @@ class VoiceTyper:
             return None
 
     def continuous_listen_loop(self):
-        """Buclă care ascultă comanda de activare 'caută'."""
+        """Buclă care ascultă comanda de activare 'scrie'."""
         with sr.Microphone() as source:
             self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
-            print("[VOICE] Mod continuu pornit. Spune 'caută [ce vrei]' oricând.")
+            print("[VOICE] Mod continuu pornit. Spune 'scrie [ce vrei]' oricând.")
             
             while self.is_running:
                 try:
@@ -58,9 +58,9 @@ class VoiceTyper:
                     raw_text = self.recognizer.recognize_google(audio, language=self.language).lower()
                     print(f"[VOICE Buffer]: {raw_text}")
                     
-                    # Dacă zice "caută ..." sau "google ..."
-                    if raw_text.startswith("caută") or raw_text.startswith("cauta"):
-                        query = raw_text.replace("caută", "").replace("cauta", "").strip()
+                    # Dacă zice "scrie ..." sau "google ..."
+                    if raw_text.startswith("scrie") or raw_text.startswith("scrie"):
+                        query = raw_text.replace("scrie", "").replace("scrie", "").strip()
                         if query:
                             print(f"[VOICE] Execut căutare pentru: '{query}'")
                             pyautogui.write(query, interval=0.03)
